@@ -7,10 +7,14 @@
 #include "config.h"
 
 struct ChordAnalysisResult {
-    bool recognized;          // True if the chord pattern matches a known definition
-    uint8_t notesPressed;     // Number of active notes currently held/sustained
-    int8_t lowestNote;        // MIDI note number of lowest active note (-1 if none)
-    char chordName[64];       // Formatted string representation of the chord
+    bool recognized;           // True if the chord pattern matches a known definition
+    uint8_t notesPressed;      // Number of active notes currently held/sustained
+    int8_t lowestNote;         // MIDI note number of lowest active note (-1 if none)
+    char rootStr[16];          // Root note string (e.g. "C", "Eb", "F#")
+    char suffixStr[32];        // Superscript quality/extension string (e.g. "maj7", "m7", "7b5")
+    char bassStr[16];          // Slash bass string (e.g. "E", "G", or empty if root in bass)
+    char chordName[64];        // Full chord name string (e.g. "Cmaj7/E")
+    char chordDescription[64]; // Detailed chord description (e.g. "C Major 7th (3rd in Bass)")
 };
 
 class ChordAnalyzer {

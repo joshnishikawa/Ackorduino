@@ -14,7 +14,11 @@ void ChordAnalyzer::reset() {
     cachedResult.recognized = false;
     cachedResult.notesPressed = 0;
     cachedResult.lowestNote = -1;
+    cachedResult.rootStr[0] = '\0';
+    cachedResult.suffixStr[0] = '\0';
+    cachedResult.bassStr[0] = '\0';
     cachedResult.chordName[0] = '\0';
+    cachedResult.chordDescription[0] = '\0';
 }
 
 void ChordAnalyzer::noteOn(uint8_t note, uint8_t velocity) {
@@ -75,7 +79,11 @@ const ChordAnalysisResult& ChordAnalyzer::analyze() {
     // 2. Handle 0 notes
     if (activeCount == 0) {
         cachedResult.recognized = false;
+        cachedResult.rootStr[0] = '\0';
+        cachedResult.suffixStr[0] = '\0';
+        cachedResult.bassStr[0] = '\0';
         cachedResult.chordName[0] = '\0';
+        cachedResult.chordDescription[0] = '\0';
         return cachedResult;
     }
 
@@ -84,7 +92,11 @@ const ChordAnalysisResult& ChordAnalyzer::analyze() {
     // 3. Handle 1 note
     if (activeCount == 1) {
         cachedResult.recognized = true;
+        snprintf(cachedResult.rootStr, sizeof(cachedResult.rootStr), "%s", NOTE_NAMES[lowestNoteClass]);
+        cachedResult.suffixStr[0] = '\0';
+        cachedResult.bassStr[0] = '\0';
         snprintf(cachedResult.chordName, sizeof(cachedResult.chordName), "%s", NOTE_NAMES[lowestNoteClass]);
+        snprintf(cachedResult.chordDescription, sizeof(cachedResult.chordDescription), "%s Single Note", NOTE_NAMES[lowestNoteClass]);
         return cachedResult;
     }
 
@@ -102,35 +114,49 @@ const ChordAnalysisResult& ChordAnalyzer::analyze() {
         uint16_t defMask;
         uint8_t baseRelation;
         const char* namePtr;
+        const char* descPtr;
 
 #if defined(ARDUINO) && defined(pgm_read_word)
         defMask = pgm_read_word(&(CHORD_DEFINITIONS[i].mask));
         baseRelation = pgm_read_byte(&(CHORD_DEFINITIONS[i].baseRelation));
         namePtr = (const char*)pgm_read_ptr(&(CHORD_DEFINITIONS[i].name));
+        descPtr = (const char*)pgm_read_ptr(&(CHORD_DEFINITIONS[i].description));
 #else
         defMask = CHORD_DEFINITIONS[i].mask;
         baseRelation = CHORD_DEFINITIONS[i].baseRelation;
         namePtr = CHORD_DEFINITIONS[i].name;
+        descPtr = CHORD_DEFINITIONS[i].description;
 #endif
 
         if (defMask == mask) {
             cachedResult.recognized = true;
             uint8_t rootIdx = (lowestNoteClass - baseRelation + 12) % 12;
+
+            snprintf(cachedResult.rootStr, sizeof(cachedResult.rootStr), "%s", NOTE_NAMES[rootIdx]);
+            snprintf(cachedResult.suffixStr, sizeof(cachedResult.suffixStr), "%s", namePtr);
+
             if (baseRelation == 0) {
+                cachedResult.bassStr[0] = '\0';
                 snprintf(cachedResult.chordName, sizeof(cachedResult.chordName), "%s%s",
                          NOTE_NAMES[rootIdx], namePtr);
             } else {
+                snprintf(cachedResult.bassStr, sizeof(cachedResult.bassStr), "%s", NOTE_NAMES[lowestNoteClass]);
                 snprintf(cachedResult.chordName, sizeof(cachedResult.chordName), "%s%s/%s",
                          NOTE_NAMES[rootIdx], namePtr, NOTE_NAMES[lowestNoteClass]);
             }
+            snprintf(cachedResult.chordDescription, sizeof(cachedResult.chordDescription), "%s %s",
+                     NOTE_NAMES[rootIdx], descPtr);
             return cachedResult;
         }
     }
 
     // 6. Unknown chord - list unique notes in pitch order starting from lowest note
     cachedResult.recognized = false;
-    int pos = snprintf(cachedResult.chordName, sizeof(cachedResult.chordName), "%s", NOTE_NAMES[lowestNoteClass]);
+    snprintf(cachedResult.rootStr, sizeof(cachedResult.rootStr), "%s", NOTE_NAMES[lowestNoteClass]);
+    cachedResult.suffixStr[0] = '\0';
+    cachedResult.bassStr[0] = '\0';
 
+    int pos = snprintf(cachedResult.chordName, sizeof(cachedResult.chordName), "%s", NOTE_NAMES[lowestNoteClass]);
     for (uint8_t step = 1; step < 12; step++) {
         if (mask & (1 << step)) {
             uint8_t noteIdx = (lowestNoteClass + step) % 12;
@@ -140,5 +166,6 @@ const ChordAnalysisResult& ChordAnalyzer::analyze() {
         }
     }
 
+    snprintf(cachedResult.chordDescription, sizeof(cachedResult.chordDescription), "Unrecognized Cluster (%s)", cachedResult.chordName);
     return cachedResult;
 }
