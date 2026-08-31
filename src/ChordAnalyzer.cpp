@@ -161,7 +161,7 @@ const ChordAnalysisResult& ChordAnalyzer::analyze() {
         if (mask & (1 << step)) {
             uint8_t noteIdx = (lowestNoteClass + step) % 12;
             if (pos < (int)sizeof(cachedResult.chordName) - 1) {
-                pos += snprintf(cachedResult.chordName + pos, sizeof(cachedResult.chordName) - pos, ", %s", NOTE_NAMES[noteIdx]);
+                pos += snprintf(cachedResult.chordName + pos, sizeof(cachedResult.chordName) - pos, " %s", NOTE_NAMES[noteIdx]);
             }
         }
     }

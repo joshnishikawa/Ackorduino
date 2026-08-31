@@ -1,6 +1,6 @@
 /*
  * Teensy 3.6 MIDI Chord Analyzer Sketch
- * Ported from Delphi 'ackord'
+ * Ported from David Henningsson's 'ackord' originally written in delphi.
  *
  * Custom Bitmap & 32px Typography Features:
  *   - PROGMEM Pixel-Perfect Musical Flat (♭) & Sharp (♯) Bitmaps
@@ -29,6 +29,9 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <Fonts/FreeSans18pt7b.h>
+#include <Fonts/FreeSans12pt7b.h>
+#include <Fonts/FreeSans9pt7b.h>
 #include <MIDI.h>
 #include "ChordAnalyzer.h"
 #include "config.h"
@@ -50,49 +53,69 @@ static ChordAnalyzer analyzer;
 
 // --- PROGMEM BITMAPS FOR MUSICAL GLYPHS ---
 
-// 32px Musical Flat Bitmap (12x32 px)
+// 32px Musical Flat Bitmap (16x32 px) - shifted down 3 rows and padded 2px on left
 static const uint8_t FLAT_BITMAP_32[] PROGMEM = {
-0xE0, 0x00, 0xE0, 0x00, 0xE0, 0x00, 0xE0, 0x00, 0xE0, 0x00, 0xE0, 0x00, 0xE0, 0x00, 0xE0, 0x00,
-0xE0, 0x00, 0xE0, 0x00, 0xE0, 0x00, 0xE0, 0x00, 0xE0, 0x00, 0xE3, 0x80, 0xE7, 0xC0, 0xEF, 0xE0,
-0xF9, 0xF0, 0xF0, 0xF0, 0xE0, 0x70, 0xE0, 0x70, 0xE0, 0x70, 0xE0, 0x60, 0xE0, 0xC0, 0xE1, 0x80,
-0xE3, 0x00, 0xE6, 0x00, 0xEC, 0x00, 0xF8, 0x00, 0xF0, 0x00, 0xE0, 0x00, 0xC0, 0x00, 0x80, 0x00
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 3 blank rows at top to prevent bezel cutoff
+  0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00,
+  0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x3C, 0x0C, 0x7E, 0x0C, 0xCF,
+  0x0D, 0x87, 0x0F, 0x07, 0x0E, 0x07, 0x0C, 0x06, 0x0C, 0x0C, 0x0C, 0x18, 0x0C, 0x30, 0x0C, 0x60,
+  0x0C, 0xC0, 0x0D, 0x80, 0x0F, 0x00, 0x0E, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
 // 16px Musical Flat Bitmap (8x16 px)
 static const uint8_t FLAT_BITMAP_16[] PROGMEM = {
-0xC0, 0x00, 0xC0, 0x00, 0xC0, 0x00, 0xC0, 0x00, 0xC0, 0x00, 0xC0, 0x00, 0xC0, 0x00, 0xDC, 0x00,
-0xEE, 0x00, 0xC6, 0x00, 0xC4, 0x00, 0xC8, 0x00, 0xD0, 0x00, 0xE0, 0x00, 0xC0, 0x00, 0x80, 0x00
+  0x00, 0x40, 0x40, 0x40, 0x40, 0x40, 0x4C, 0x56, 0x66, 0x44, 0x48, 0x50, 0x60, 0x40, 0x00, 0x00
 };
 
 // 32px Musical Sharp Bitmap (16x32 px)
 static const uint8_t SHARP_BITMAP_32[] PROGMEM = {
-    0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30,
-    0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x7F, 0xFC,
-    0xFF, 0xFE, 0xFE, 0xFF, 0xFC, 0xFE, 0x0C, 0x30,
-    0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30,
-    0x0C, 0x30, 0x0C, 0x30, 0x7F, 0xFC, 0xFF, 0xFE,
-    0xFE, 0xFF, 0xFC, 0xFE, 0x0C, 0x30, 0x0C, 0x30,
-    0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30,
-    0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30
+0x00, 0x30, 0x00, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x34, 0x0C, 0x3C,
+0x0C, 0xFC, 0x0F, 0xFC, 0x3F, 0xFC, 0x3F, 0xF0, 0x3F, 0x30, 0x3C, 0x30, 0x2C, 0x30, 0x0C, 0x30,
+0x0C, 0x30, 0x0C, 0x34, 0x0C, 0x3C, 0x0C, 0xFC, 0x0F, 0xFC, 0x3F, 0xFC, 0x3F, 0xF0, 0x3F, 0x30,
+0x3C, 0x30, 0x2C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x00, 0x0C, 0x00
 };
 
 // 16px Musical Sharp Bitmap (8x16 px)
 static const uint8_t SHARP_BITMAP_16[] PROGMEM = {
-    0x24, 0x24, 0x24, 0xFE, 0xFE, 0x24, 0x24, 0x24,
-    0xFE, 0xFE, 0x24, 0x24, 0x24, 0x24, 0x00, 0x00
+  0x04, 0x24, 0x24, 0x26, 0x3E, 0x7C, 0x64, 0x24, 0x26, 0x2E, 0x7E, 0x74, 0x24, 0x24, 0x24, 0x20
 };
 
 // 16px Delta Triangle Bitmap for Major 7th (12x16 px)
 static const uint8_t TRIANGLE_BITMAP_16[] PROGMEM = {
-    0x02, 0x00, 0x03, 0x00, 0x07, 0x00, 0x05, 0x00, 0x0D, 0x80, 0x09, 0x80, 0x08, 0x80, 0x18, 0xC0,
-0x10, 0xC0, 0x10, 0x40, 0x30, 0x60, 0x20, 0x60, 0x20, 0x60, 0x70, 0xF0, 0x7F, 0xF0, 0xFF, 0xF8
+    0x02, 0x00, 0x03, 0x00, 0x07, 0x00, 0x05, 0x00, 
+    0x0D, 0x80, 0x09, 0x80, 0x08, 0x80, 0x18, 0xC0,
+    0x10, 0xC0, 0x10, 0x40, 0x30, 0x60, 0x20, 0x60, 
+    0x20, 0x60, 0x70, 0xF0, 0x7F, 0xF0, 0xFF, 0xF8
 };
 
 // Prototypes
 void updateOLED(const ChordAnalysisResult& result);
-void showSplashScreen();
 void scanI2C();
+void showSplashScreen();
 int16_t printFormattedText(const char* str, int16_t startX, int16_t startY, uint8_t size, bool convertAccidentals);
+
+// Displays splash screen upon boot using FreeSans
+void showSplashScreen() {
+    display.clearDisplay();
+    display.setFont(&FreeSans12pt7b);
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setCursor(0, 18);
+    display.print(F("Ackorduino"));
+
+    display.setFont(&FreeSans9pt7b);
+    display.setCursor(0, 31);
+    display.print(F("Teensy Chord ID"));
+    display.display();
+    delay(1500);
+
+    display.clearDisplay();
+    display.setFont(&FreeSans12pt7b);
+    display.setCursor(0, 22);
+    display.print(F("Listening"));
+    display.display();
+    display.setFont(NULL); // Reset to default
+}
 
 // Callback: MIDI Note On (shared by Hardware Serial Pin 0 and USB MIDI)
 void OnNoteOn(byte channel, byte note, byte velocity) {
@@ -115,11 +138,6 @@ void setup() {
     // 1. Initialize USB Serial for debugging output
     Serial.begin(SERIAL_BAUD_RATE);
     delay(1000); // Give Serial monitor time to connect
-
-    Serial.println(F("=========================================="));
-    Serial.println(F("   Teensy 3.6 MIDI Chord Analyzer         "));
-    Serial.println(F("   Ported from Delphi 'ackord'            "));
-    Serial.println(F("=========================================="));
 
     // Enable internal pullups for Wire2 pins just in case external pullups are missing
     pinMode(3, INPUT_PULLUP);
@@ -198,82 +216,85 @@ void loop() {
             Serial.println(F("]"));
         }
 
-        // Update 128x32 OLED Display with Bitmap Musical Glyphs & 32px Typography
+        // Update 128x32 OLED Display with FreeSansBold Typography & Musical Glyphs
         updateOLED(result);
     }
 }
 
-// Renders formatted text, replacing '^' with Delta Triangle (Δ), 'b' with Flat (♭), and '#' with Sharp (♯)
+// Renders formatted text with FreeSansBold font or default bitmap font
 int16_t printFormattedText(const char* str, int16_t startX, int16_t startY, uint8_t size, bool convertAccidentals) {
     int16_t curX = startX;
-    uint8_t charW = 6 * size;
+    int16_t curY = startY;
 
-    display.setTextSize(size);
+    display.setTextSize(1);
     display.setTextColor(SSD1306_WHITE);
 
     for (size_t i = 0; str[i] != '\0'; i++) {
         char c = str[i];
         if (convertAccidentals && c == '^') {
-            // Render bitmap Delta Triangle (Δ) for Major 7th
-            display.drawBitmap(curX, startY, TRIANGLE_BITMAP_16, 12, 16, SSD1306_WHITE);
-            curX += 11;
+            if (curX + 13 > SCREEN_WIDTH) {
+                curX = 0;
+                curY += 16;
+            }
+            int16_t bmpY = (curY >= 13) ? (curY - 13) : 0;
+            display.drawBitmap(curX, bmpY, TRIANGLE_BITMAP_16, 12, 16, SSD1306_WHITE);
+            curX += 13;
         } else if (convertAccidentals && c == 'b') {
-            // Render bitmap Flat (♭)
-            if (size >= 3) {
-                // 32px Root Note Flat
-                display.drawBitmap(curX, startY, FLAT_BITMAP_32, 12, 32, SSD1306_WHITE);
-                curX += 13;
+            if (size >= 4) {
+                // Size 4 (FreeSans18pt7b baseline at y=28) -> 32px root flat bitmap
+                if (curX + 16 > SCREEN_WIDTH) {
+                    curX = 0;
+                    curY = 28;
+                }
+                display.drawBitmap(curX, 0, FLAT_BITMAP_32, 16, 32, SSD1306_WHITE);
+                curX += 14;
             } else {
-                // Superscript / Extension Flat -> Uses FLAT_BITMAP_16 (12x16 px)
-                display.drawBitmap(curX, startY, FLAT_BITMAP_16, 12, 16, SSD1306_WHITE);
-                curX += 11;
+                // 16px flat bitmap
+                if (curX + 10 > SCREEN_WIDTH) {
+                    curX = 0;
+                    curY += 16;
+                }
+                // Align flat loop with font baseline (FreeSans9pt baseline is around curY - 12)
+                int16_t bmpY = (curY >= 12) ? (curY - 12) : 0;
+                display.drawBitmap(curX, bmpY, FLAT_BITMAP_16, 8, 16, SSD1306_WHITE);
+                curX += 10;
             }
         } else if (convertAccidentals && c == '#') {
-            // Render bitmap Sharp (♯)
-            if (size >= 3) {
-                display.drawBitmap(curX, startY, SHARP_BITMAP_32, 16, 32, SSD1306_WHITE);
-                curX += 18;
+            if (size >= 4) {
+                // Size 4 (FreeSans18pt7b baseline at y=28) -> 32px root sharp bitmap
+                if (curX + 16 > SCREEN_WIDTH) {
+                    curX = 0;
+                    curY = 28;
+                }
+                display.drawBitmap(curX, 0, SHARP_BITMAP_32, 16, 32, SSD1306_WHITE);
+                curX += 16;
             } else {
-                display.drawBitmap(curX, startY, SHARP_BITMAP_16, 8, 16, SSD1306_WHITE);
-                curX += 9;
+                // 16px sharp bitmap
+                if (curX + 10 > SCREEN_WIDTH) {
+                    curX = 0;
+                    curY += 16;
+                }
+                int16_t bmpY = (curY >= 12) ? (curY - 12) : 0;
+                display.drawBitmap(curX, bmpY, SHARP_BITMAP_16, 8, 16, SSD1306_WHITE);
+                curX += 10;
             }
         } else {
-            display.setCursor(curX, startY);
+            // Measure proportional character bounds with current FreeSans font
+            char tempBuf[2] = { c, '\0' };
+            int16_t x1, y1;
+            uint16_t w, h;
+            display.getTextBounds(tempBuf, curX, curY, &x1, &y1, &w, &h);
+
+            if (curX + w > SCREEN_WIDTH && curX > 0) {
+                curX = 0;
+                curY += (size >= 3) ? 16 : 14;
+            }
+            display.setCursor(curX, curY);
             display.write(c);
-            curX += charW;
+            curX += (w > 0) ? (w + 1) : (6 * size);
         }
     }
     return curX;
-}
-
-// Shows diagnostic splash screen on startup
-void showSplashScreen() {
-    display.clearDisplay();
-    
-    // Outer double border
-    display.drawRect(0, 0, 128, 32, SSD1306_WHITE);
-    display.drawRect(2, 2, 124, 28, SSD1306_WHITE);
-
-    display.setTextSize(2);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(28, 8);
-    display.print(F("ACKORD"));
-
-    display.display();
-
-    // Brief screen flash (invert toggle) to visually confirm OLED hardware reaction
-    delay(200);
-    display.invertDisplay(true);
-    delay(250);
-    display.invertDisplay(false);
-    delay(1000); // Hold splash screen for 1 second
-
-    // Show ready screen
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setCursor(28, 12);
-    display.print(F("Play a chord"));
-    display.display();
 }
 
 // Scans Wire2 (Pins 3 & 4) for I2C devices and prints diagnostic report to Serial
@@ -301,102 +322,105 @@ void scanI2C() {
     }
 }
 
-// Renders the chord with 32px full-height main letters, 'm' on baseline, and superscript extensions
+// Renders the chord using modern FreeSans typography
 void updateOLED(const ChordAnalysisResult& result) {
     display.clearDisplay();
 
     if (result.notesPressed == 0) {
-        display.setTextSize(1);
+        // "Listening" prompt with FreeSans12pt
+        display.setFont(&FreeSans12pt7b);
         display.setTextColor(SSD1306_WHITE);
-        display.setCursor(28, 12);
-        display.print(F("Play a chord"));
+        display.setTextSize(1);
+        display.setCursor(0, 22);
+        display.print(F("Listening"));
     } else if (!result.recognized) {
-        // Unrecognized note cluster fallback
-        display.setTextSize(1);
+        // Unrecognized raw notes cluster in FreeSans9pt
+        display.setFont(&FreeSans9pt7b);
         display.setTextColor(SSD1306_WHITE);
-        
-        int16_t x1, y1;
-        uint16_t w, h;
-        display.getTextBounds(result.chordName, 0, 0, &x1, &y1, &w, &h);
-        int16_t curX = (SCREEN_WIDTH - w) / 2;
-        if (curX < 0) curX = 0;
-        
-        printFormattedText(result.chordName, curX, 12, 1, true);
-        display.fillCircle(124, 4, 2, SSD1306_WHITE); // Dot indicator for unrecognized
+        display.setTextSize(1);
+        printFormattedText(result.chordName, 0, 13, 2, true);
     } else {
-        // --- 32PX FULL-HEIGHT TYPOGRAPHY & SUPERSCRIPT RENDERER ---
-        char mainStr[32];  // Root Note + 'm' (rendered at full 32px height)
-        char superStr[32]; // Superscript extensions (7, maj7, 7♭9, 13♯11)
+        // --- CHORD RENDERING WITH FREESANS ---
+        char mainStr[32];  // Root Note + 'm'
+        char superStr[32]; // Suffix extensions
 
-        // 1. Separate Root Note & 'm' from Superscript Extensions
         snprintf(mainStr, sizeof(mainStr), "%s", result.rootStr);
         superStr[0] = '\0';
 
         if (result.suffixStr[0] != '\0') {
             if (result.suffixStr[0] == 'm' && result.suffixStr[1] != 'a') {
-                // Minor quality 'm' (e.g. 'm', 'm7', 'm9', 'm11', 'm6', 'm7b5', 'm add9')
-                // Keep 'm' attached to mainStr so it renders at full 32px height alongside the root!
+                // Minor quality 'm' kept with root note
                 strcat(mainStr, "m");
                 const char* rest = result.suffixStr + 1;
                 while (*rest == ' ') rest++; // Skip leading spaces
                 snprintf(superStr, sizeof(superStr), "%s", rest);
             } else {
-                // Suffix is maj7, 7, 7b9, 13#11, add9, sus4, etc.
                 snprintf(superStr, sizeof(superStr), "%s", result.suffixStr);
             }
         }
 
-        uint8_t mainLen = strlen(mainStr);
         uint8_t superLen = strlen(superStr);
-        uint8_t bassLen = result.bassStr[0] ? (strlen(result.bassStr) + 1) : 0; // Includes '/'
+        uint8_t bassLen = result.bassStr[0] ? (strlen(result.bassStr) + 1) : 0;
 
-        // Determine size for Main Letters (Root + 'm')
-        // Default to TextSize = 4 (32px full screen height!)
-        uint8_t mainSize = 4;
-        uint8_t superSize = 2; // ALWAYS 16px height (TextSize 2) for consistent superscripts!
+        // 1. Draw Root Note (+ 'm') in FreeSans18pt7b (baseline at y = 28, spans ~30px height!)
+        display.setFont(&FreeSans18pt7b);
+        display.setTextSize(1);
+        int16_t nextX = printFormattedText(mainStr, 0, 28, 4, true);
 
-        uint16_t mainWidth = mainLen * (6 * mainSize);
-        uint16_t superWidth = superLen * (6 * superSize);
-        uint16_t bassWidth = bassLen * 12;
+        // 2. Draw Suffix/Extension:
+        // Main extension in FreeSans9pt7b (aligned to top baseline y = 12)
+        // Sub-modifiers ("no5", "no3", "add9", "add11", etc.) in default font size 1
+        if (superLen > 0) {
+            const char* modKeywords[] = {
+                "no5", "no3", "add 9", "add 11", "add 13", "add9", "add11", "add13", "add#5", "alt"
+            };
+            const int numModKeywords = sizeof(modKeywords) / sizeof(modKeywords[0]);
 
-        uint16_t totalWidth = mainWidth + superWidth + bassWidth;
+            const char* matchPtr = NULL;
+            for (int k = 0; k < numModKeywords; k++) {
+                const char* p = strstr(superStr, modKeywords[k]);
+                if (p != NULL) {
+                    if (matchPtr == NULL || p < matchPtr) {
+                        matchPtr = p;
+                    }
+                }
+            }
 
-        // Auto-scale main letters if the chord is extremely wide
-        if (totalWidth > 124) {
-            mainSize = 3; // 24px height
-            mainWidth = mainLen * (6 * mainSize);
-            totalWidth = mainWidth + superWidth + bassWidth;
-            if (totalWidth > 124) {
-                mainSize = 2; // 16px height
-                mainWidth = mainLen * (6 * mainSize);
-                totalWidth = mainWidth + superWidth + bassWidth;
+            if (matchPtr != NULL) {
+                char prefixPart[32];
+                size_t prefixLen = matchPtr - superStr;
+                if (prefixLen >= sizeof(prefixPart)) prefixLen = sizeof(prefixPart) - 1;
+                strncpy(prefixPart, superStr, prefixLen);
+                prefixPart[prefixLen] = '\0';
+
+                while (prefixLen > 0 && prefixPart[prefixLen - 1] == ' ') {
+                    prefixPart[--prefixLen] = '\0';
+                }
+
+                if (prefixLen > 0) {
+                    display.setFont(&FreeSans9pt7b);
+                    nextX = printFormattedText(prefixPart, nextX + 1, 13, 3, true);
+                    nextX += 2;
+                }
+
+                // Render modifier in compact default font size 1 at top
+                display.setFont(NULL);
+                display.setTextSize(1);
+                nextX = printFormattedText(matchPtr, nextX, 0, 1, true);
+            } else {
+                display.setFont(&FreeSans9pt7b);
+                nextX = printFormattedText(superStr, nextX + 1, 13, 3, true);
             }
         }
 
-        // Center entire chord horizontally on 128px OLED screen
-        int16_t startX = (SCREEN_WIDTH - totalWidth) / 2;
-        if (startX < 0) startX = 0;
-
-        int16_t mainY = (mainSize == 4) ? 0 : ((32 - (8 * mainSize)) / 2); // 32px height at y = 0
-        int16_t superY = 0;  // Superscript aligned at top right!
-        int16_t bassY = 16;  // Slash bass at bottom right
-
-        // A. Draw Main Letters (Root Note + 'm' at 32px full height!)
-        int16_t nextX = printFormattedText(mainStr, startX, mainY, mainSize, true);
-
-        // B. Draw Superscript Extension at top-right (e.g. 7, maj7, 7♭9, 13♯11)
-        if (superLen > 0) {
-            nextX = printFormattedText(superStr, nextX, superY, superSize, true);
-        }
-
-        // C. Draw Slash Bass Note at bottom-right (e.g. /G, /E♭)
+        // 3. Draw Slash Bass Note in FreeSans9pt7b (aligned to bottom baseline y = 30)
         if (bassLen > 0) {
-            display.setTextSize(2);
-            display.setTextColor(SSD1306_WHITE);
-            display.setCursor(nextX, bassY);
+            display.setFont(&FreeSans9pt7b);
+            display.setTextSize(1);
+            display.setCursor(nextX, 30);
             display.write('/');
-            nextX += 12;
-            printFormattedText(result.bassStr, nextX, bassY, 2, true);
+            nextX += 9;
+            printFormattedText(result.bassStr, nextX, 30, 3, true);
         }
     }
 
