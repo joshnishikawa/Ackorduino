@@ -4,7 +4,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include "config.h"
+// Note names in 12-tone chromatic scale starting from C (index 0)
+static const char* const NOTE_NAMES[12] = {
+    "C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"
+};
 
 struct ChordAnalysisResult {
     bool recognized;           // True if the chord pattern matches a known definition

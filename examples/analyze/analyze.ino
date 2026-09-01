@@ -1,128 +1,49 @@
 /*
- * Teensy 3.6 MIDI Chord Analyzer Sketch
- * Ported from David Henningsson's 'ackord' originally written in delphi.
+ * Ackorduino MIDI Chord Analyzer Example
  *
- * Custom Bitmap & 32px Typography Features:
- *   - PROGMEM Pixel-Perfect Musical Flat (♭) & Sharp (♯) Bitmaps
- *   - 32px Full-Height Main Letters (Root Note & 'm' Minor indicator at full 32px height)
- *   - 'm' is NOT superscripted (rendered at full 32px size alongside the root note)
- *   - Superscript Chord Extensions (7, maj7, 7♭9, 13♯11) positioned at top-right
+ * Demonstrates real-time chord detection on:
+ *   1. Hardware Serial MIDI (or USB MIDI on supported boards)
+ *   2. SSD1306 OLED Display (I2C)
+ *   3. Serial Monitor (115200 baud)
  *
- * Displays detected chords on:
- *   1. 128x32 I2C OLED Display (SSD1306) connected to Wire2: Pin 4 (SDA2) & Pin 3 (SCL2)
- *   2. USB Serial Monitor (115200 baud)
- *
- * MIDI Inputs Supported:
- *   1. Hardware Serial1 MIDI on Pin 0 (RX1) at standard 31250 baud.
- *   2. Native USB Device MIDI.
- *
- * Required Libraries (install via Arduino Library Manager):
- *   - MIDI Library (by FortySevenEffects)
- *   - Adafruit SSD1306
- *   - Adafruit GFX Library
- *
- * Board Selection in Arduino IDE (Teensyduino):
- *   - Board: "Teensy 3.6"
- *   - USB Type: "Serial + MIDI" (or "MIDI")
+ * For wiring diagrams, board-specific options, and library dependencies,
+ * see README.md in the library root.
  */
 
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-#include <Fonts/FreeSans18pt7b.h>
-#include <Fonts/FreeSans12pt7b.h>
-#include <Fonts/FreeSans9pt7b.h>
 #include <MIDI.h>
 #include "ChordAnalyzer.h"
-#include "config.h"
-
-// OLED Display Parameters (128x32 px on Wire2: Pin 4 SDA2 & Pin 3 SCL2)
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 32
-#define OLED_RESET    -1
-#define OLED_I2C_ADDR 0x3C // Standard I2C address for SSD1306 128x32
-
-// OLED Instance using Wire2 (Pin 4 SDA2, Pin 3 SCL2)
-static Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire2, OLED_RESET);
-
-// Hardware Serial MIDI Instance on Serial1 (Pin 0 = RX1, Pin 1 = TX1)
-MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI1);
+#include "ChordDisplay.h"
 
 // Core chord analyzer instance
 static ChordAnalyzer analyzer;
 
-// --- PROGMEM BITMAPS FOR MUSICAL GLYPHS ---
+// OLED Display Configuration:
+// - Default (Uno, Nano, Mega, ESP32, ESP8266, RP2040, etc.): standard Wire bus
+// - Teensy 3.6 / specific pin configuration:
+#if defined(TEENSYDUINO) && defined(Wire2)
+// Example: Teensy 3.6 using Wire2 on SDA2=Pin 4, SCL2=Pin 3
+static ChordDisplay chordDisplay(Wire2, 0x3C, 4, 3);
+#elif defined(ESP32)
+// Example for ESP32 with custom I2C pins (e.g. SDA=21, SCL=22)
+static ChordDisplay chordDisplay(Wire, 0x3C, 21, 22);
+#else
+// Default: Standard Wire bus and default hardware I2C pins for your board
+static ChordDisplay chordDisplay;
+#endif
 
-// 32px Musical Flat Bitmap (16x32 px) - shifted down 3 rows and padded 2px on left
-static const uint8_t FLAT_BITMAP_32[] PROGMEM = {
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // 3 blank rows at top to prevent bezel cutoff
-  0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00,
-  0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x0C, 0x3C, 0x0C, 0x7E, 0x0C, 0xCF,
-  0x0D, 0x87, 0x0F, 0x07, 0x0E, 0x07, 0x0C, 0x06, 0x0C, 0x0C, 0x0C, 0x18, 0x0C, 0x30, 0x0C, 0x60,
-  0x0C, 0xC0, 0x0D, 0x80, 0x0F, 0x00, 0x0E, 0x00, 0x0C, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00
-};
+// Hardware Serial MIDI Instance (Serial1 or Serial on AVR)
+#if defined(HAVE_HWSERIAL1) || defined(ARDUINO_ARCH_SAMD) || defined(ESP32) || defined(TEENSYDUINO)
+MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, MIDI_PORT);
+#else
+MIDI_CREATE_DEFAULT_INSTANCE();
+#endif
 
-// 16px Musical Flat Bitmap (8x16 px)
-static const uint8_t FLAT_BITMAP_16[] PROGMEM = {
-  0x00, 0x40, 0x40, 0x40, 0x40, 0x40, 0x4C, 0x56, 0x66, 0x44, 0x48, 0x50, 0x60, 0x40, 0x00, 0x00
-};
-
-// 32px Musical Sharp Bitmap (16x32 px)
-static const uint8_t SHARP_BITMAP_32[] PROGMEM = {
-0x00, 0x30, 0x00, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x34, 0x0C, 0x3C,
-0x0C, 0xFC, 0x0F, 0xFC, 0x3F, 0xFC, 0x3F, 0xF0, 0x3F, 0x30, 0x3C, 0x30, 0x2C, 0x30, 0x0C, 0x30,
-0x0C, 0x30, 0x0C, 0x34, 0x0C, 0x3C, 0x0C, 0xFC, 0x0F, 0xFC, 0x3F, 0xFC, 0x3F, 0xF0, 0x3F, 0x30,
-0x3C, 0x30, 0x2C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x30, 0x0C, 0x00, 0x0C, 0x00
-};
-
-// 16px Musical Sharp Bitmap (8x16 px)
-static const uint8_t SHARP_BITMAP_16[] PROGMEM = {
-  0x04, 0x24, 0x24, 0x26, 0x3E, 0x7C, 0x64, 0x24, 0x26, 0x2E, 0x7E, 0x74, 0x24, 0x24, 0x24, 0x20
-};
-
-// 16px Delta Triangle Bitmap for Major 7th (12x16 px)
-static const uint8_t TRIANGLE_BITMAP_16[] PROGMEM = {
-    0x02, 0x00, 0x03, 0x00, 0x07, 0x00, 0x05, 0x00, 
-    0x0D, 0x80, 0x09, 0x80, 0x08, 0x80, 0x18, 0xC0,
-    0x10, 0xC0, 0x10, 0x40, 0x30, 0x60, 0x20, 0x60, 
-    0x20, 0x60, 0x70, 0xF0, 0x7F, 0xF0, 0xFF, 0xF8
-};
-
-// Prototypes
-void updateOLED(const ChordAnalysisResult& result);
-void scanI2C();
-void showSplashScreen();
-int16_t printFormattedText(const char* str, int16_t startX, int16_t startY, uint8_t size, bool convertAccidentals);
-
-// Displays splash screen upon boot using FreeSans
-void showSplashScreen() {
-    display.clearDisplay();
-    display.setFont(&FreeSans12pt7b);
-    display.setTextColor(SSD1306_WHITE);
-    display.setTextSize(1);
-    display.setCursor(0, 18);
-    display.print(F("Ackorduino"));
-
-    display.setFont(&FreeSans9pt7b);
-    display.setCursor(0, 31);
-    display.print(F("Teensy Chord ID"));
-    display.display();
-    delay(1500);
-
-    display.clearDisplay();
-    display.setFont(&FreeSans12pt7b);
-    display.setCursor(0, 22);
-    display.print(F("Listening"));
-    display.display();
-    display.setFont(NULL); // Reset to default
-}
-
-// Callback: MIDI Note On (shared by Hardware Serial Pin 0 and USB MIDI)
+// Callback: MIDI Note On
 void OnNoteOn(byte channel, byte note, byte velocity) {
     analyzer.noteOn(note, velocity);
 }
 
-// Callback: MIDI Note Off (shared by Hardware Serial Pin 0 and USB MIDI)
+// Callback: MIDI Note Off
 void OnNoteOff(byte channel, byte note, byte velocity) {
     analyzer.noteOff(note);
 }
@@ -139,41 +60,25 @@ void setup() {
     Serial.begin(SERIAL_BAUD_RATE);
     delay(1000); // Give Serial monitor time to connect
 
-    // Enable internal pullups for Wire2 pins just in case external pullups are missing
-    pinMode(3, INPUT_PULLUP);
-    pinMode(4, INPUT_PULLUP);
+    // 2. Initialize OLED Display
+    chordDisplay.begin();
 
-    // 2. Initialize Wire2 I2C: Pin 4 = SDA2, Pin 3 = SCL2
-    Wire2.setSDA(4);
-    Wire2.setSCL(3);
-    Wire2.begin();
+    // 3. Initialize Hardware Serial MIDI
+#if defined(HAVE_HWSERIAL1) || defined(ARDUINO_ARCH_SAMD) || defined(ESP32) || defined(TEENSYDUINO)
+    MIDI_PORT.begin(MIDI_CHANNEL_OMNI);
+    MIDI_PORT.setHandleNoteOn(OnNoteOn);
+    MIDI_PORT.setHandleNoteOff(OnNoteOff);
+    MIDI_PORT.setHandleControlChange(OnControlChange);
+    MIDI_PORT.turnThruOff();
+#else
+    MIDI.begin(MIDI_CHANNEL_OMNI);
+    MIDI.setHandleNoteOn(OnNoteOn);
+    MIDI.setHandleNoteOff(OnNoteOff);
+    MIDI.setHandleControlChange(OnControlChange);
+    MIDI.turnThruOff();
+#endif
 
-    // Run I2C bus scan to verify OLED hardware connection & address
-    scanI2C();
-
-    // 3. Initialize OLED Display
-    bool displayOK = display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDR);
-    if (!displayOK) {
-        // Try alternate 0x3D address if 0x3C failed
-        displayOK = display.begin(SSD1306_SWITCHCAPVCC, 0x3D);
-    }
-
-    if (displayOK) {
-        Serial.println(F("[OLED]: Display initialized successfully!"));
-        showSplashScreen();
-    } else {
-        Serial.println(F("[OLED]: ERROR - SSD1306 display.begin() failed!"));
-        Serial.println(F("[OLED]: Check wiring (SDA->Pin 4, SCL->Pin 3, VCC->3.3V, GND->GND)"));
-    }
-
-    // 4. Initialize Hardware Serial MIDI on Pin 0 (RX1) @ 31250 baud
-    MIDI1.begin(MIDI_CHANNEL_OMNI);
-    MIDI1.setHandleNoteOn(OnNoteOn);
-    MIDI1.setHandleNoteOff(OnNoteOff);
-    MIDI1.setHandleControlChange(OnControlChange);
-    MIDI1.turnThruOff();
-
-    // 5. Register USB MIDI handlers if USB MIDI enabled in Tools menu
+    // 4. Register USB MIDI handlers (if supported by board, e.g., Teensy USB MIDI)
 #if defined(USB_MIDI) || defined(USB_EVERYTHING) || defined(USB_MIDI_SERIAL) || defined(USB_MIDI4_SERIAL) || defined(USB_MIDI16_SERIAL)
     usbMIDI.setHandleNoteOn(OnNoteOn);
     usbMIDI.setHandleNoteOff(OnNoteOff);
@@ -181,15 +86,17 @@ void setup() {
 #endif
 
     Serial.println(F("=========================================="));
-    Serial.println(F("Listening for MIDI input on:"));
-    Serial.println(F("  - Hardware Serial1 (Pin 0 RX1)"));
-    Serial.println(F("  - USB Device MIDI"));
+    Serial.println(F("Ackorduino: Listening for MIDI input"));
     Serial.println(F("=========================================="));
 }
 
 void loop() {
-    // 1. Read Hardware Serial MIDI (Pin 0 / RX1)
-    MIDI1.read();
+    // 1. Read Hardware Serial MIDI
+#if defined(HAVE_HWSERIAL1) || defined(ARDUINO_ARCH_SAMD) || defined(ESP32) || defined(TEENSYDUINO)
+    MIDI_PORT.read();
+#else
+    MIDI.read();
+#endif
 
     // 2. Read USB Device MIDI (if enabled)
 #if defined(USB_MIDI) || defined(USB_EVERYTHING) || defined(USB_MIDI_SERIAL) || defined(USB_MIDI4_SERIAL) || defined(USB_MIDI16_SERIAL)
@@ -216,213 +123,7 @@ void loop() {
             Serial.println(F("]"));
         }
 
-        // Update 128x32 OLED Display with FreeSansBold Typography & Musical Glyphs
-        updateOLED(result);
+        // Update OLED Display
+        chordDisplay.update(result);
     }
-}
-
-// Renders formatted text with FreeSansBold font or default bitmap font
-int16_t printFormattedText(const char* str, int16_t startX, int16_t startY, uint8_t size, bool convertAccidentals) {
-    int16_t curX = startX;
-    int16_t curY = startY;
-
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-
-    for (size_t i = 0; str[i] != '\0'; i++) {
-        char c = str[i];
-        if (convertAccidentals && c == '^') {
-            if (curX + 13 > SCREEN_WIDTH) {
-                curX = 0;
-                curY += 16;
-            }
-            int16_t bmpY = (curY >= 13) ? (curY - 13) : 0;
-            display.drawBitmap(curX, bmpY, TRIANGLE_BITMAP_16, 12, 16, SSD1306_WHITE);
-            curX += 13;
-        } else if (convertAccidentals && c == 'b') {
-            if (size >= 4) {
-                // Size 4 (FreeSans18pt7b baseline at y=28) -> 32px root flat bitmap
-                if (curX + 16 > SCREEN_WIDTH) {
-                    curX = 0;
-                    curY = 28;
-                }
-                display.drawBitmap(curX, 0, FLAT_BITMAP_32, 16, 32, SSD1306_WHITE);
-                curX += 14;
-            } else {
-                // 16px flat bitmap
-                if (curX + 10 > SCREEN_WIDTH) {
-                    curX = 0;
-                    curY += 16;
-                }
-                // Align flat loop with font baseline (FreeSans9pt baseline is around curY - 12)
-                int16_t bmpY = (curY >= 12) ? (curY - 12) : 0;
-                display.drawBitmap(curX, bmpY, FLAT_BITMAP_16, 8, 16, SSD1306_WHITE);
-                curX += 10;
-            }
-        } else if (convertAccidentals && c == '#') {
-            if (size >= 4) {
-                // Size 4 (FreeSans18pt7b baseline at y=28) -> 32px root sharp bitmap
-                if (curX + 16 > SCREEN_WIDTH) {
-                    curX = 0;
-                    curY = 28;
-                }
-                display.drawBitmap(curX, 0, SHARP_BITMAP_32, 16, 32, SSD1306_WHITE);
-                curX += 16;
-            } else {
-                // 16px sharp bitmap
-                if (curX + 10 > SCREEN_WIDTH) {
-                    curX = 0;
-                    curY += 16;
-                }
-                int16_t bmpY = (curY >= 12) ? (curY - 12) : 0;
-                display.drawBitmap(curX, bmpY, SHARP_BITMAP_16, 8, 16, SSD1306_WHITE);
-                curX += 10;
-            }
-        } else {
-            // Measure proportional character bounds with current FreeSans font
-            char tempBuf[2] = { c, '\0' };
-            int16_t x1, y1;
-            uint16_t w, h;
-            display.getTextBounds(tempBuf, curX, curY, &x1, &y1, &w, &h);
-
-            if (curX + w > SCREEN_WIDTH && curX > 0) {
-                curX = 0;
-                curY += (size >= 3) ? 16 : 14;
-            }
-            display.setCursor(curX, curY);
-            display.write(c);
-            curX += (w > 0) ? (w + 1) : (6 * size);
-        }
-    }
-    return curX;
-}
-
-// Scans Wire2 (Pins 3 & 4) for I2C devices and prints diagnostic report to Serial
-void scanI2C() {
-    Serial.println(F("[I2C Scan]: Scanning Wire2 (Pin 4 SDA2, Pin 3 SCL2)..."));
-    byte count = 0;
-    for (byte address = 1; address < 127; address++) {
-        Wire2.beginTransmission(address);
-        byte error = Wire2.endTransmission();
-
-        if (error == 0) {
-            Serial.print(F("  -> Found I2C device at address 0x"));
-            if (address < 16) Serial.print(F("0"));
-            Serial.print(address, HEX);
-            Serial.println(F(" !"));
-            count++;
-        }
-    }
-    if (count == 0) {
-        Serial.println(F("  -> NO I2C devices found on Wire2 (Pins 3 & 4)!"));
-        Serial.println(F("     Check connections: SDA -> Pin 4, SCL -> Pin 3, VCC -> 3.3V, GND -> GND"));
-    } else {
-        Serial.print(F("[I2C Scan]: Scan complete. Total devices found: "));
-        Serial.println(count);
-    }
-}
-
-// Renders the chord using modern FreeSans typography
-void updateOLED(const ChordAnalysisResult& result) {
-    display.clearDisplay();
-
-    if (result.notesPressed == 0) {
-        // "Listening" prompt with FreeSans12pt
-        display.setFont(&FreeSans12pt7b);
-        display.setTextColor(SSD1306_WHITE);
-        display.setTextSize(1);
-        display.setCursor(0, 22);
-        display.print(F("Listening"));
-    } else if (!result.recognized) {
-        // Unrecognized raw notes cluster in FreeSans9pt
-        display.setFont(&FreeSans9pt7b);
-        display.setTextColor(SSD1306_WHITE);
-        display.setTextSize(1);
-        printFormattedText(result.chordName, 0, 13, 2, true);
-    } else {
-        // --- CHORD RENDERING WITH FREESANS ---
-        char mainStr[32];  // Root Note + 'm'
-        char superStr[32]; // Suffix extensions
-
-        snprintf(mainStr, sizeof(mainStr), "%s", result.rootStr);
-        superStr[0] = '\0';
-
-        if (result.suffixStr[0] != '\0') {
-            if (result.suffixStr[0] == 'm' && result.suffixStr[1] != 'a') {
-                // Minor quality 'm' kept with root note
-                strcat(mainStr, "m");
-                const char* rest = result.suffixStr + 1;
-                while (*rest == ' ') rest++; // Skip leading spaces
-                snprintf(superStr, sizeof(superStr), "%s", rest);
-            } else {
-                snprintf(superStr, sizeof(superStr), "%s", result.suffixStr);
-            }
-        }
-
-        uint8_t superLen = strlen(superStr);
-        uint8_t bassLen = result.bassStr[0] ? (strlen(result.bassStr) + 1) : 0;
-
-        // 1. Draw Root Note (+ 'm') in FreeSans18pt7b (baseline at y = 28, spans ~30px height!)
-        display.setFont(&FreeSans18pt7b);
-        display.setTextSize(1);
-        int16_t nextX = printFormattedText(mainStr, 0, 28, 4, true);
-
-        // 2. Draw Suffix/Extension:
-        // Main extension in FreeSans9pt7b (aligned to top baseline y = 12)
-        // Sub-modifiers ("no5", "no3", "add9", "add11", etc.) in default font size 1
-        if (superLen > 0) {
-            const char* modKeywords[] = {
-                "no5", "no3", "add 9", "add 11", "add 13", "add9", "add11", "add13", "add#5", "alt"
-            };
-            const int numModKeywords = sizeof(modKeywords) / sizeof(modKeywords[0]);
-
-            const char* matchPtr = NULL;
-            for (int k = 0; k < numModKeywords; k++) {
-                const char* p = strstr(superStr, modKeywords[k]);
-                if (p != NULL) {
-                    if (matchPtr == NULL || p < matchPtr) {
-                        matchPtr = p;
-                    }
-                }
-            }
-
-            if (matchPtr != NULL) {
-                char prefixPart[32];
-                size_t prefixLen = matchPtr - superStr;
-                if (prefixLen >= sizeof(prefixPart)) prefixLen = sizeof(prefixPart) - 1;
-                strncpy(prefixPart, superStr, prefixLen);
-                prefixPart[prefixLen] = '\0';
-
-                while (prefixLen > 0 && prefixPart[prefixLen - 1] == ' ') {
-                    prefixPart[--prefixLen] = '\0';
-                }
-
-                if (prefixLen > 0) {
-                    display.setFont(&FreeSans9pt7b);
-                    nextX = printFormattedText(prefixPart, nextX + 1, 13, 3, true);
-                    nextX += 2;
-                }
-
-                // Render modifier in compact default font size 1 at top
-                display.setFont(NULL);
-                display.setTextSize(1);
-                nextX = printFormattedText(matchPtr, nextX, 0, 1, true);
-            } else {
-                display.setFont(&FreeSans9pt7b);
-                nextX = printFormattedText(superStr, nextX + 1, 13, 3, true);
-            }
-        }
-
-        // 3. Draw Slash Bass Note in FreeSans9pt7b (aligned to bottom baseline y = 30)
-        if (bassLen > 0) {
-            display.setFont(&FreeSans9pt7b);
-            display.setTextSize(1);
-            display.setCursor(nextX, 30);
-            display.write('/');
-            nextX += 9;
-            printFormattedText(result.bassStr, nextX, 30, 3, true);
-        }
-    }
-
-    display.display();
 }
